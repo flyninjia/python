@@ -1,0 +1,123 @@
+#coding:utf8
+
+"""
+proxiex.py
+~~~~~~~~~~~~~
+
+该模块包含所有代理服务器列表，提供代理选择功能。
+爬取 xicidaili 高匿代理 判断可用代理 存储avaiable 1 ,否则为 0
+"""
+
+from threadPool import ThreadPool
+import requests
+import re
+import urllib2
+import sys
+import database
+
+
+class proxy(object):
+
+    #循环读取列表页
+def HttpIP_get():
+
+    url = 'http://www.xicidaili.com/nn/'
+    for x in range(2):
+        getProxy(url+str(x+1))
+
+#获取页面内容
+def getHtml(url):
+    user_agent = 'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT)'
+    headers = { 'User-Agent' : user_agent }
+    req = urllib2.Request(url, headers = headers)
+    myResponse = urllib2.urlopen(req)
+    myPage = myResponse.read()
+    unicodePage = myPage.decode("utf-8")
+    #print unicodePage
+    return unicodePage
+
+#页面内容正则匹配
+def getProxy(url):
+    databases = database.DatabaseProxyIp()
+
+    pattern = re.compile('<td>([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})</td>\s*<td>([0-9]*)</td>',re.S)
+    #items = re.findall(pattern,html)
+    #获取所有匹配内容
+    items = re.findall(pattern,getHtml(url))
+    if items:
+        print "get the url:"+url
+    for item in items:
+        ip = item[0]+':'+item[1]
+        a = 1
+        databases.saveData(a,ip)
+
+    databases.close()
+
+#测试代理可连接性
+def checkProxy(proxy):
+    try:
+        response = requests.get('http://www.baidu.com',timeout=10, proxies={'http':proxy})
+        if '030173' in response.text:
+            return 'ok',proxy
+    except Exception,e:
+        return 'fail',proxy
+
+#保存测试成功代理到proxyipok表中
+def saveProxies():
+    #创建线程30个,并开启线程
+    threadPool = ThreadPool(30)
+    threadPool.startThreads()
+
+    #调用类 读取数据
+    databases = database.DatabaseProxyIp()
+
+    proxyip = databases.readData()
+    #x循环读取数据进行匹配
+    for proxy in proxyip:
+        #把测试函数放入线程中
+        threadPool.putTask(checkProxy, proxy[0])
+        #flag,proxy = checkProxy(proxy[0])
+    #循环获取测试结果,成功写入数据库,失败修改available为0
+    while threadPool.getTaskLeft():
+        flag, proxy = threadPool.getTaskResult()
+        print flag, proxy
+        if flag == 'ok':
+            #proxyFileOK.write(proxy)
+            #proxyFileOK.write('\n')
+            #print proxy[0],"  is work"
+            databases.saveDataOK(1, proxy)
+        else:
+            databases.updateData(0, proxy)
+    threadPool.stopThreads()
+    databases.close()
+
+def help():
+    print 'Usage: pyhon proxy.py [options]'
+    print 'Option:'
+    print '   -h  help'
+    print '   -g  Get the proxyip for HttpProxyIp.db'
+    print '   -c  Check the proxyip to new table'
+
+def main():
+    args = sys.argv
+    if len(args) == 2 :
+        if args[1] == '-g':
+            HttpIP_get()
+        elif args[1] == '-c':
+            saveProxies()
+        elif args[1] == '-h':
+            help()
+        else:
+            help()
+    else:
+        help()
+    #saveProxies()
+    #HttpIP_get()
+
+
+
+
+if __name__ == '__main__':
+    #main()
+    HttpIP_get()
+    saveProxies()
